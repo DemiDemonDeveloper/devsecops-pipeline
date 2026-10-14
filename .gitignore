@@ -1,0 +1,22 @@
+# Build output
+/bin/
+/api
+
+# Scan reports
+*.sarif
+sbom*.json
+zap-report*
+
+# Terraform state and secrets (state can contain credentials)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!example.tfvars
+crash.log
+
+# Local secrets / keys
+.env
+*.pem
+*.key
+cosign.key

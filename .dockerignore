@@ -1,0 +1,8 @@
+.git
+.github
+.terraform
+*.tfstate*
+*.md
+Makefile
+.pre-commit-config.yaml
+.gitleaks.toml

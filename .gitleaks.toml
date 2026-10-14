@@ -1,0 +1,12 @@
+# Gitleaks config: start from the built-in ruleset (AWS keys, GitHub tokens,
+# private keys, generic API keys, ...) and add project-specific allowlists.
+title = "devsecops-pipeline gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known non-secret files"
+paths = [
+  '''go\.sum$''',
+]
