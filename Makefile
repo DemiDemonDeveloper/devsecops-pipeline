@@ -3,7 +3,7 @@ SEMGREP_CONFIGS = --config p/golang --config p/owasp-top-ten --config p/secrets 
 # Syft/Trivy need the daemon socket; Colima doesn't use /var/run/docker.sock
 export DOCKER_HOST ?= $(shell docker context inspect -f '{{.Endpoints.docker.Host}}' 2>/dev/null)
 
-.PHONY: test run build secrets hooks sast sast-test vulns deps sbom scan-image scan-all
+.PHONY: test run build secrets hooks sast sast-test vulns deps sbom scan-image scan-all iac plan
 
 test:
 	go vet ./...
@@ -33,7 +33,7 @@ vulns:
 	go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
 deps:
-	trivy fs --quiet --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 .
+	trivy fs --quiet --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --skip-dirs terraform/tests --exit-code 1 .
 
 sbom: build
 	syft docker:$(IMAGE) -q -o cyclonedx-json=sbom.cdx.json -o spdx-json=sbom.spdx.json
@@ -42,4 +42,14 @@ sbom: build
 scan-image: build
 	trivy image --quiet --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 $(IMAGE)
 
-scan-all: secrets sast test vulns deps sbom scan-image
+# --- Step 3: IaC ---
+iac:
+	cd terraform && terraform fmt -check -recursive && terraform init -backend=false -input=false >/dev/null && terraform validate
+	checkov -d terraform --framework terraform --skip-path tests --compact --quiet
+	trivy config --quiet --severity HIGH,CRITICAL --skip-dirs terraform/tests --exit-code 1 terraform
+
+# Plan only; applying is a deliberate manual step (costs money).
+plan:
+	cd terraform && terraform init -input=false && terraform plan -out=tfplan
+
+scan-all: secrets sast test vulns deps iac sbom scan-image

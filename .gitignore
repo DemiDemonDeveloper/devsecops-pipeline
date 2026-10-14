@@ -20,3 +20,4 @@ crash.log
 *.pem
 *.key
 cosign.key
+tfplan

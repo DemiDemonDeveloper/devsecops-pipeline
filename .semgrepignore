@@ -1,2 +1,4 @@
 # Intentionally vulnerable rule-test fixtures
 .semgrep/
+# Intentionally insecure IaC fixture (gate self-test)
+terraform/tests/

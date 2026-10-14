@@ -13,7 +13,8 @@ permissions:
 env:
   GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f # v8.30.1
   TRIVY_IMAGE: aquasec/trivy@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222 # 0.76.0
-  SYFT_IMAGE: anchore/syft@sha256:3eb5379ba7b409c3f4069b686110527af0c47df993fa5c10d13e7cf34f49b1aa # v1.54.1
+  CHECKOV_IMAGE: bridgecrew/checkov@sha256:6d20ebbcde58b2dce6e3151a6771fefa4d468281fe442475455623f5799b9f53 # 3.3.20
+  SYFT_IMAGE:anchore/syft@sha256:3eb5379ba7b409c3f4069b686110527af0c47df993fa5c10d13e7cf34f49b1aa # v1.54.1
   GOVULNCHECK_VERSION: v1.9.0
   IMAGE: devsecops-api:${{ github.sha }}
 
@@ -72,12 +73,40 @@ jobs:
       - name: trivy fs
         run: |
           docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" fs --quiet \
-            --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 /src
+            --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --skip-dirs /src/terraform/tests --exit-code 1 /src
+
+  iac:
+    name: IaC scan (Terraform, Checkov, Trivy)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate
+      - name: Checkov
+        run: |
+          docker run --rm -v "$PWD:/tf" "$CHECKOV_IMAGE" -d /tf --framework terraform \
+            --skip-path tests --compact --quiet
+      - name: Trivy config (tfsec rules)
+        run: |
+          docker run --rm -v "$PWD:/tf" "$TRIVY_IMAGE" config --quiet \
+            --severity HIGH,CRITICAL --skip-dirs /tf/tests --exit-code 1 /tf
+      - name: Gate self-test (insecure fixture must fail)
+        run: |
+          if docker run --rm -v "$PWD:/tf" "$CHECKOV_IMAGE" -d /tf/tests/insecure --framework terraform --quiet >/dev/null; then
+            echo "::error::Checkov passed an intentionally insecure fixture"; exit 1; fi
+          if docker run --rm -v "$PWD:/tf" "$TRIVY_IMAGE" config --quiet --severity HIGH,CRITICAL --exit-code 1 /tf/tests/insecure >/dev/null; then
+            echo "::error::Trivy passed an intentionally insecure fixture"; exit 1; fi
+          echo "Both scanners correctly blocked the insecure fixture."
 
   build:
     name: Build, SBOM, image scan
     runs-on: ubuntu-latest
-    needs: [secrets, sast, test, deps]
+    needs: [secrets, sast, test, deps, iac]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker build -t "$IMAGE" .
