@@ -8,34 +8,92 @@ on:
 permissions:
   contents: read
 
+# Every third-party action is pinned to a commit SHA and every scanner image to a
+# digest, so a re-pointed tag upstream can't inject code into this pipeline.
+env:
+  GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f # v8.30.1
+  TRIVY_IMAGE: aquasec/trivy@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222 # 0.76.0
+  SYFT_IMAGE: anchore/syft@sha256:3eb5379ba7b409c3f4069b686110527af0c47df993fa5c10d13e7cf34f49b1aa # v1.54.1
+  GOVULNCHECK_VERSION: v1.9.0
+  IMAGE: devsecops-api:${{ github.sha }}
+
 jobs:
   secrets:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # scan full history, not just the tip
       - name: gitleaks
         run: |
-          docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/gitleaks/gitleaks:v8.30.1 \
+          docker run --rm -v "$PWD:/repo" -w /repo "$GITLEAKS_IMAGE" \
             git --redact --verbose --config .gitleaks.toml --exit-code 1
 
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep@sha256:529ee8a277ec8adc5b534d7c74eea0a47e9de21d62852b6ba7ac6ba9566845c3 # 1.180.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Custom rule tests
+        run: semgrep --metrics=off --test --config .semgrep/rules.yml .semgrep/rules.go
+      - name: Semgrep scan (OWASP Top 10, Go, secrets, custom rules)
+        run: |
+          semgrep scan --metrics=off --error \
+            --config p/golang --config p/owasp-top-ten --config p/secrets \
+            --config .semgrep/rules.yml \
+            --sarif-output=semgrep.sarif .
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: semgrep-sarif
+          path: semgrep.sarif
+
   test:
-    name: Go test
+    name: Go test + govulncheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - run: go vet ./...
       - run: go test -race ./...
+      - name: govulncheck (reachable Go/stdlib CVEs)
+        run: go run golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION} ./...
+
+  deps:
+    name: Dependency + Dockerfile scan (Trivy fs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: trivy fs
+        run: |
+          docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" fs --quiet \
+            --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 /src
 
   build:
-    name: Build image
+    name: Build, SBOM, image scan
     runs-on: ubuntu-latest
-    needs: [secrets, test]
+    needs: [secrets, sast, test, deps]
     steps:
-      - uses: actions/checkout@v4
-      - run: docker build -t devsecops-api:${{ github.sha }} .
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker build -t "$IMAGE" .
+      - name: SBOM (Syft, CycloneDX + SPDX)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/out" "$SYFT_IMAGE" \
+            "docker:$IMAGE" -o cyclonedx-json=/out/sbom.cdx.json -o spdx-json=/out/sbom.spdx.json
+      - name: Scan SBOM for vulnerable components (Trivy)
+        run: |
+          docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" sbom --quiet \
+            --severity HIGH,CRITICAL --exit-code 1 /src/sbom.cdx.json
+      - name: Scan image (Trivy)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image --quiet \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom
+          path: sbom.*.json

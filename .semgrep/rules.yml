@@ -1,0 +1,49 @@
+# Project-specific SAST rules, run in addition to the p/golang,
+# p/owasp-top-ten and p/secrets registry packs. Test with: make sast-test
+rules:
+  - id: go-sql-string-building
+    message: >-
+      SQL built from string formatting/concatenation (SQL injection, OWASP A03).
+      Use placeholders: db.Query("... WHERE id = $1", id).
+    severity: ERROR
+    languages: [go]
+    metadata: { cwe: "CWE-89", owasp: "A03:2021 - Injection" }
+    patterns:
+      - pattern-either:
+          # <... ...> matches nested expressions, e.g. "a" + x + "b"
+          - pattern: $DB.$METHOD(<... fmt.Sprintf(...) ...>, ...)
+          - pattern: $DB.$METHOD($CTX, <... fmt.Sprintf(...) ...>, ...)
+          - pattern: $DB.$METHOD(<... "..." + $X ...>, ...)
+          - pattern: $DB.$METHOD($CTX, <... "..." + $X ...>, ...)
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: ^(Query|QueryRow|Exec)(Context)?$
+
+  - id: go-unescaped-html
+    message: >-
+      Converting non-constant data to template.HTML disables auto-escaping (XSS, OWASP A03).
+    severity: ERROR
+    languages: [go]
+    metadata: { cwe: "CWE-79", owasp: "A03:2021 - Injection" }
+    patterns:
+      - pattern: template.HTML($X)
+      - pattern-not: template.HTML("...")
+
+  - id: go-http-server-no-timeouts
+    message: >-
+      http.ListenAndServe has no read/write timeouts (slowloris DoS). Use an
+      http.Server with ReadHeaderTimeout/ReadTimeout/WriteTimeout set.
+    severity: WARNING
+    languages: [go]
+    metadata: { cwe: "CWE-400" }
+    pattern-either:
+      - pattern: http.ListenAndServe(...)
+      - pattern: http.ListenAndServeTLS(...)
+
+  - id: go-tls-insecure-skip-verify
+    message: TLS certificate verification disabled (OWASP A02/A07).
+    severity: ERROR
+    languages: [go]
+    metadata: { cwe: "CWE-295" }
+    pattern: |
+      tls.Config{..., InsecureSkipVerify: true, ...}
