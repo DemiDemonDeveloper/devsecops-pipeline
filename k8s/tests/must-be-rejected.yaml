@@ -1,0 +1,48 @@
+# INTENTIONALLY NON-COMPLIANT. Each Deployment breaks exactly one policy.
+# `make admission-test` server-side dry-runs each one and expects a denial.
+# Shared baseline: otherwise compliant (signed image, non-root, limits).
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: bad-root, namespace: staging }
+spec:
+  selector: { matchLabels: { app: bad-root } }
+  template:
+    metadata: { labels: { app: bad-root } }
+    spec:
+      imagePullSecrets: [{ name: ghcr-pull }]
+      securityContext: { runAsUser: 0, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: c
+          image: ghcr.io/demidemondeveloper/devsecops-pipeline/api@sha256:3fe170feeb8e60ca113d7fb02ac9a63511066169d8441f05d8e10207499f17b5
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
+          resources: { limits: { cpu: 100m, memory: 64Mi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: bad-no-limits, namespace: staging }
+spec:
+  selector: { matchLabels: { app: bad-no-limits } }
+  template:
+    metadata: { labels: { app: bad-no-limits } }
+    spec:
+      imagePullSecrets: [{ name: ghcr-pull }]
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: c
+          image: ghcr.io/demidemondeveloper/devsecops-pipeline/api@sha256:3fe170feeb8e60ca113d7fb02ac9a63511066169d8441f05d8e10207499f17b5
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: bad-unsigned, namespace: staging }
+spec:
+  selector: { matchLabels: { app: bad-unsigned } }
+  template:
+    metadata: { labels: { app: bad-unsigned } }
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: c
+          image: docker.io/nginxinc/nginx-unprivileged:1.29-alpine # unsigned, wrong registry
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
+          resources: { limits: { cpu: 100m, memory: 64Mi } }

@@ -1,0 +1,49 @@
+# Every image in an enforced namespace must be Cosign-signed (keyless) by this
+# repo's CI workflow on main, and carry a signed CycloneDX SBOM attestation.
+# Matches ALL images, so anything unsigned (e.g. docker.io/nginx) is rejected
+# even before the registry allowlist is considered.
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: verify-image-signatures
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  autogen:
+    podControllers:
+      controllers: [deployments, statefulsets, daemonsets, jobs, cronjobs]
+  matchConstraints:
+    namespaceSelector:
+      matchLabels: { policy.devsecops/enforce: "true" }
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  matchImageReferences:
+    - glob: "*"
+  # Private GHCR package: Kyverno reads signatures with this pull secret,
+  # which must exist in the kyverno namespace.
+  credentials:
+    secrets: [ghcr-pull]
+  validationConfigurations:
+    required: true
+    verifyDigest: true # tags are resolved and pinned; mutable tags can't swap content
+  attestors:
+    - name: ci
+      cosign:
+        keyless:
+          identities:
+            - issuer: https://token.actions.githubusercontent.com
+              subject: https://github.com/DemiDemonDeveloper/devsecops-pipeline/.github/workflows/ci.yml@refs/heads/main
+  attestations:
+    - name: sbom
+      intoto:
+        type: https://cyclonedx.org/bom
+  validations:
+    - expression: >-
+        images.containers.map(image, verifyImageSignatures(image, [attestors.ci])).all(e, e > 0)
+      message: Image is not signed by DemiDemonDeveloper/devsecops-pipeline CI on main.
+    - expression: >-
+        images.containers.map(image, verifyAttestationSignatures(image, attestations.sbom, [attestors.ci])).all(e, e > 0)
+      message: Image has no SBOM attestation signed by this repo's CI.

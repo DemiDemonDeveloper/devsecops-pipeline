@@ -3,7 +3,7 @@ SEMGREP_CONFIGS = --config p/golang --config p/owasp-top-ten --config p/secrets 
 # Syft/Trivy need the daemon socket; Colima doesn't use /var/run/docker.sock
 export DOCKER_HOST ?= $(shell docker context inspect -f '{{.Endpoints.docker.Host}}' 2>/dev/null)
 
-.PHONY: test run build secrets hooks sast sast-test vulns deps sbom scan-image scan-all iac plan
+.PHONY: kyverno policies deploy admission-test test run build secrets hooks sast sast-test vulns deps sbom scan-image scan-all iac plan
 
 test:
 	go vet ./...
@@ -58,3 +58,19 @@ plan:
 	cd terraform && terraform init -input=false && terraform plan -out=tfplan
 
 scan-all: secrets sast test vulns deps iac sbom scan-image
+
+# --- Step 5: admission control (needs kubectl context for the cluster) ---
+kyverno:
+	helm repo add kyverno https://kyverno.github.io/kyverno/ >/dev/null 2>&1 || true
+	helm upgrade --install kyverno kyverno/kyverno --version 3.9.1 -n kyverno --create-namespace -f k8s/kyverno/values.yaml --wait
+
+policies:
+	kubectl apply -f k8s/kyverno/policies/
+
+deploy:
+	kubectl apply -f k8s/app/app.yaml
+	kubectl -n staging rollout status deploy/api --timeout=120s
+
+# Every manifest in k8s/tests must be DENIED by admission (server-side dry run)
+admission-test:
+	@python3 -c "import subprocess,sys; docs=open('k8s/tests/must-be-rejected.yaml').read().split('\n---\n'); bad=[d for d in docs if subprocess.run(['kubectl','apply','--dry-run=server','-f','-'],input=d,capture_output=True,text=True).returncode==0]; print(f'{len(docs)-len(bad)}/{len(docs)} non-compliant manifests denied'); sys.exit(1 if bad else 0)"

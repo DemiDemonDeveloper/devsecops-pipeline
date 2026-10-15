@@ -1,0 +1,35 @@
+# Kyverno Helm values for a single-node staging cluster (chart 3.9.1 / Kyverno v1.19.1).
+# Install: make kyverno
+admissionController:
+  replicas: 1
+  container:
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { memory: 512Mi }
+    # Lets Kyverno read signatures/attestations from the private GHCR package.
+    # The secret must exist in the kyverno namespace (created by the operator).
+    extraArgs:
+      imagePullSecrets: ghcr-pull
+
+backgroundController:
+  replicas: 1
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+cleanupController:
+  replicas: 1
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+reportsController:
+  replicas: 1
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+# Fail closed: if Kyverno is down, matching resources are rejected rather than admitted.
+features:
+  forceFailurePolicyIgnore:
+    enabled: false

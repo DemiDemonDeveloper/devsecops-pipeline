@@ -1,0 +1,103 @@
+# Kyverno CEL ValidatingPolicies (policies.kyverno.io/v1).
+# Enforced only in namespaces labeled policy.devsecops/enforce=true.
+# Autogen also applies each rule to Deployments, so bad manifests are rejected
+# at `kubectl apply` time instead of failing later at pod creation.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: disallow-root
+  annotations:
+    policies.kyverno.io/description: Containers must run as a non-root user.
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  autogen:
+    podControllers:
+      controllers: [deployments, statefulsets, daemonsets, jobs, cronjobs]
+  matchConstraints:
+    namespaceSelector:
+      matchLabels: { policy.devsecops/enforce: "true" }
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  variables:
+    - name: podNonRoot
+      expression: >-
+        has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot)
+        && object.spec.securityContext.runAsNonRoot == true
+    - name: allContainers
+      expression: >-
+        object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])
+  validations:
+    - expression: >-
+        variables.allContainers.all(c, variables.podNonRoot ||
+          (has(c.securityContext) && has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot == true))
+      message: Set securityContext.runAsNonRoot=true on the pod or every container.
+    - expression: >-
+        !(has(object.spec.securityContext) && has(object.spec.securityContext.runAsUser)
+          && object.spec.securityContext.runAsUser == 0) &&
+        variables.allContainers.all(c, !(has(c.securityContext) && has(c.securityContext.runAsUser)
+          && c.securityContext.runAsUser == 0))
+      message: runAsUser 0 (root) is not allowed.
+    - expression: >-
+        variables.allContainers.all(c, has(c.securityContext)
+          && has(c.securityContext.allowPrivilegeEscalation)
+          && c.securityContext.allowPrivilegeEscalation == false)
+      message: Set securityContext.allowPrivilegeEscalation=false on every container.
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: require-resource-limits
+  annotations:
+    policies.kyverno.io/description: Every container must declare CPU and memory limits.
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  autogen:
+    podControllers:
+      controllers: [deployments, statefulsets, daemonsets, jobs, cronjobs]
+  matchConstraints:
+    namespaceSelector:
+      matchLabels: { policy.devsecops/enforce: "true" }
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  validations:
+    - expression: >-
+        object.spec.containers.all(c, has(c.resources) && has(c.resources.limits)
+          && 'cpu' in c.resources.limits && 'memory' in c.resources.limits)
+      message: Every container needs resources.limits.cpu and resources.limits.memory.
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: restrict-image-registries
+  annotations:
+    policies.kyverno.io/description: Only images built by this repo's pipeline may run.
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  autogen:
+    podControllers:
+      controllers: [deployments, statefulsets, daemonsets, jobs, cronjobs]
+  matchConstraints:
+    namespaceSelector:
+      matchLabels: { policy.devsecops/enforce: "true" }
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  variables:
+    - name: allContainers
+      expression: >-
+        object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])
+  validations:
+    - expression: >-
+        variables.allContainers.all(c, c.image.startsWith('ghcr.io/demidemondeveloper/devsecops-pipeline/'))
+      message: Images must come from ghcr.io/demidemondeveloper/devsecops-pipeline/.
