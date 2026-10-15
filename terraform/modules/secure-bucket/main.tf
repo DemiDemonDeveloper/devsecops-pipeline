@@ -19,6 +19,9 @@ variable "is_log_bucket" {
 
 resource "aws_s3_bucket" "this" {
   bucket = var.name
+  #checkov:skip=CKV_AWS_145:S3 access-log delivery requires SSE-S3, so log buckets use AES256; data buckets use SSE-KMS
+  #checkov:skip=CKV_AWS_144:Cross-region replication not required for staging evidence
+  #checkov:skip=CKV2_AWS_62:No downstream consumers of object events yet
 }
 
 resource "aws_s3_bucket_public_access_block" "this" {

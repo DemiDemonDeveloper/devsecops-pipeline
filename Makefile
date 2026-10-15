@@ -43,10 +43,15 @@ scan-image: build
 	trivy image --quiet --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 $(IMAGE)
 
 # --- Step 3: IaC ---
+# Same digest-pinned images as CI: the Homebrew checkov build was found to
+# evaluate fewer checks than the container, so local results could drift.
+CHECKOV_IMAGE = bridgecrew/checkov@sha256:6d20ebbcde58b2dce6e3151a6771fefa4d468281fe442475455623f5799b9f53
+TRIVY_IMAGE   = aquasec/trivy@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222
+
 iac:
 	cd terraform && terraform fmt -check -recursive && terraform init -backend=false -input=false >/dev/null && terraform validate
-	checkov -d terraform --framework terraform --skip-path tests --compact --quiet
-	trivy config --quiet --severity HIGH,CRITICAL --skip-dirs terraform/tests --exit-code 1 terraform
+	docker run --rm -v "$(CURDIR)/terraform:/tf" $(CHECKOV_IMAGE) -d /tf --framework terraform --skip-path tests --compact --quiet
+	docker run --rm -v "$(CURDIR)/terraform:/tf" $(TRIVY_IMAGE) config --quiet --severity HIGH,CRITICAL --skip-dirs /tf/tests --exit-code 1 /tf
 
 # Plan only; applying is a deliberate manual step (costs money).
 plan:
