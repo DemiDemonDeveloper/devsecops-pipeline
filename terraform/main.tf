@@ -8,6 +8,12 @@ locals {
   region     = data.aws_region.current.region
 }
 
+# KMS rejects key policies naming principals that don't exist yet, and this
+# role is only auto-created on first Auto Scaling use, so create it explicitly.
+resource "aws_iam_service_linked_role" "autoscaling" {
+  aws_service_name = "autoscaling.amazonaws.com"
+}
+
 # One customer-managed key for EKS secrets, EBS, CloudWatch Logs and S3.
 resource "aws_kms_key" "main" {
   description             = "${local.name} encryption key"
@@ -63,7 +69,7 @@ data "aws_iam_policy_document" "kms" {
     resources = ["*"]
     principals {
       type        = "AWS"
-      identifiers = ["arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"]
+      identifiers = [aws_iam_service_linked_role.autoscaling.arn]
     }
   }
 }

@@ -48,6 +48,7 @@ resource "aws_eks_cluster" "this" {
   # Public endpoint is needed to run kubectl from a laptop without a VPN, so it
   # is restricted to admin_cidrs (validated to never include 0.0.0.0/0).
   #checkov:skip=CKV_AWS_38:public_access_cidrs comes from var.admin_cidrs, whose validation rejects 0.0.0.0/0
+  #checkov:skip=CKV_AWS_339:Checkov 3.3.20 version list predates 1.37; AWS describe-cluster-versions reports STANDARD_SUPPORT
   #checkov:skip=CKV_AWS_39:Public endpoint is CIDR-restricted via public_access_cidrs
   vpc_config {
     subnet_ids              = var.subnet_ids
