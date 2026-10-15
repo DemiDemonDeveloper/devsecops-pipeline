@@ -104,9 +104,15 @@ jobs:
           echo "Both scanners correctly blocked the insecure fixture."
 
   build:
-    name: Build, SBOM, image scan
+    name: Build, scan, push, sign
     runs-on: ubuntu-latest
     needs: [secrets, sast, test, deps, iac]
+    permissions:
+      contents: read
+      packages: write # push to GHCR (main only)
+      id-token: write # keyless Cosign signing via GitHub OIDC (main only)
+    env:
+      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker build -t "$IMAGE" .
@@ -126,3 +132,35 @@ jobs:
         with:
           name: sbom
           path: sbom.*.json
+
+      # ---- Publish: only reached if every scan above passed ----
+      - name: Push to GHCR
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO="ghcr.io/${GITHUB_REPOSITORY,,}/api"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag "$IMAGE" "$REPO:${GITHUB_SHA}"
+          docker push -q "$REPO:${GITHUB_SHA}"
+          # Sign/verify by immutable digest, never by tag
+          REF=$(docker inspect --format '{{index .RepoDigests 0}}' "$REPO:${GITHUB_SHA}")
+          echo "REF=$REF" >> "$GITHUB_ENV"
+          echo "Pushed $REF" >> "$GITHUB_STEP_SUMMARY"
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        if: env.PUBLISH == 'true'
+        with:
+          cosign-release: v3.1.3
+      - name: Sign image + attach SBOM attestation (keyless)
+        if: env.PUBLISH == 'true'
+        run: |
+          cosign sign --yes "$REF"
+          cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "$REF"
+      - name: Verify signature and attestation
+        if: env.PUBLISH == 'true'
+        run: |
+          ID="${GITHUB_SERVER_URL}/${GITHUB_WORKFLOW_REF}"
+          ISSUER=https://token.actions.githubusercontent.com
+          cosign verify --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER" "$REF" > /dev/null
+          cosign verify-attestation --type cyclonedx --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER" "$REF" > /dev/null
+          echo "Signature + SBOM attestation verified for $REF (identity: $ID)" >> "$GITHUB_STEP_SUMMARY"

@@ -7,7 +7,7 @@ A Go microservice wrapped in an end-to-end DevSecOps pipeline.
 | 1. Secret prevention | gitleaks (pre-commit + CI) | ✅ |
 | 2. SAST + SCA / SBOM | Semgrep (+ custom rules), govulncheck, Trivy, Syft | ✅ |
 | 3. IaC security | Terraform (AWS VPC/EKS/S3/IAM/KMS), Checkov, Trivy config (tfsec rules) | ✅ scanned + deployed (us-east-2) |
-| 4. Container security + signing | Multi-stage distroless image, Trivy, Cosign | 🟡 image done |
+| 4. Container security + signing | Distroless non-root image, Trivy gate before push, GHCR, Cosign keyless sign + SBOM attestation | ✅ |
 | 5. Admission control | Kyverno | ⏳ |
 | 6. DAST + runtime | OWASP ZAP, Falco | ⏳ |
 
