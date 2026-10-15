@@ -73,7 +73,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
 }
 
 resource "aws_s3_bucket_logging" "this" {
-  count         = var.log_bucket == null ? 0 : 1
+  count         = var.is_log_bucket ? 0 : 1 # data buckets log; log buckets do not (no loop)
   bucket        = aws_s3_bucket.this.id
   target_bucket = var.log_bucket
   target_prefix = "${var.name}/"

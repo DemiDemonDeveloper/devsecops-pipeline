@@ -102,6 +102,7 @@ module "artifacts_bucket" {
 }
 
 module "github_oidc" {
+  count                = var.enable_github_oidc ? 1 : 0
   source               = "./modules/github-oidc"
   name                 = "${local.name}-github-ci"
   repository           = var.github_repository

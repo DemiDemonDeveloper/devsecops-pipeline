@@ -49,6 +49,12 @@ variable "github_repository" {
   default     = "DemiDemonDeveloper/devsecops-pipeline"
 }
 
+variable "enable_github_oidc" {
+  type        = bool
+  description = "Create the GitHub Actions OIDC role. Set false where an SCP blocks IAM OIDC providers."
+  default     = true
+}
+
 variable "create_github_oidc_provider" {
   type        = bool
   description = "Set false if the account already has the token.actions.githubusercontent.com provider."

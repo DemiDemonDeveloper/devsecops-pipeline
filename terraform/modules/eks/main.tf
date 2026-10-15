@@ -54,7 +54,8 @@ resource "aws_eks_cluster" "this" {
     endpoint_private_access = true
     #trivy:ignore:AWS-0040 public endpoint is CIDR-restricted (see admin_cidrs validation)
     endpoint_public_access = true
-    public_access_cidrs    = var.public_access_cidrs
+    #trivy:ignore:AWS-0041 admin_cidrs are /32 operator IPs by design (validation rejects 0.0.0.0/0)
+    public_access_cidrs = var.public_access_cidrs
   }
 
   encryption_config {

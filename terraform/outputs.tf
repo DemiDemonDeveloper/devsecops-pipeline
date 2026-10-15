@@ -12,5 +12,5 @@ output "artifacts_bucket" {
 
 output "github_ci_role_arn" {
   description = "Set as the AWS_ROLE_ARN repository variable for GitHub Actions."
-  value       = module.github_oidc.role_arn
+  value       = one(module.github_oidc[*].role_arn)
 }
