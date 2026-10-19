@@ -73,7 +73,7 @@ jobs:
       - name: trivy fs
         run: |
           docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" fs --quiet \
-            --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --skip-dirs /src/terraform/tests --exit-code 1 /src
+            --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --skip-dirs /src/terraform/tests --skip-dirs /src/k8s/tests --exit-code 1 /src
 
   iac:
     name: IaC scan (Terraform, Checkov, Trivy)

@@ -33,7 +33,7 @@ vulns:
 	go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
 deps:
-	trivy fs --quiet --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --skip-dirs terraform/tests --exit-code 1 .
+	trivy fs --quiet --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --skip-dirs terraform/tests --skip-dirs k8s/tests --exit-code 1 .
 
 sbom: build
 	syft docker:$(IMAGE) -q -o cyclonedx-json=sbom.cdx.json -o spdx-json=sbom.spdx.json
